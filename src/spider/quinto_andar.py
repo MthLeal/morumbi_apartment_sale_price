@@ -1,8 +1,11 @@
 import asyncio
+import logging
 import pandas as pd
 from playwright.async_api import async_playwright, Playwright, TimeoutError
 
-async def run(pw: Playwright) -> pd.DataFrame:
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+async def run_spider(pw: Playwright) -> pd.DataFrame:
     data = pd.DataFrame(columns=[
         'id',
         'total',
@@ -12,15 +15,19 @@ async def run(pw: Playwright) -> pd.DataFrame:
         'address',
         'state'
     ])
+
     try:
         browser = await pw.chromium.launch(headless=False)
         context = await browser.new_context(user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36')
 
-        # abrir o navegador
+        # abre o navegador e a pagina
         page = await context.new_page()
 
-        # abre a pagina
-        await page.goto('https://www.quintoandar.com.br/comprar/imovel/morumbi-sao-paulo-sp-brasil/de-150000-a-200000-venda')
+        response = await page.goto('https://www.quintoandar.com.br/comprar/imovel/morumbi-sao-paulo-sp-brasil')
+
+        if not response.ok:
+            logging.error('Requisition Error')
+            return data
         
         count_clicks = 0
 
@@ -36,7 +43,6 @@ async def run(pw: Playwright) -> pd.DataFrame:
                 count_clicks += 1
 
             except TimeoutError:
-                print('Nao existe mais botao carregar mais')
                 break
         
         locator_links = await page.get_by_test_id("HOUSE_CARDS_GRID_TEST_ID").get_by_test_id('house-card-container').get_by_role('link').all()
@@ -61,7 +67,7 @@ async def run(pw: Playwright) -> pd.DataFrame:
         data['state'] = state
 
     except Exception as e:
-        print(f'Erro ao realizar scraping do site: {e}')
+        logging.error(f'Erro ao realizar scraping do site: {e}')
     
     finally:
         await context.close()
@@ -70,11 +76,14 @@ async def run(pw: Playwright) -> pd.DataFrame:
     return data
 
 def save_data(data:pd.DataFrame):
-    data.to_parquet('./data/house_data.parquet', index=False)
+    output_path = './data/house_data.parquet'
+    data.to_parquet(output_path, index=False)
+    logging.info(f'File saved in {output_path}')
 
 async def main():
     async with async_playwright() as pw:
-        data = await run(pw)
+        data = await run_spider(pw)
         save_data(data)
 
-asyncio.run(main())
+if __name__ == '__main__':  
+    asyncio.run(main())
