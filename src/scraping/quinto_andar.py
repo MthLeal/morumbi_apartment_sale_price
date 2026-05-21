@@ -3,12 +3,13 @@ import logging
 import pandas as pd
 from pathlib import Path
 from utils.utils import save_data
-from playwright.async_api import async_playwright, Playwright, TimeoutError
+from playwright.async_api import async_playwright, Playwright, TimeoutError, Page, Response
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 output_path_name = Path(__file__).parent.parent.parent / 'data' / 'house_data2.parquet'
 url = 'https://www.quintoandar.com.br/comprar/imovel/morumbi-sao-paulo-sp-brasil/apartamento'
+districts_url = 'https://www.quintoandar.com.br/'
 
 async def run_spider(pw: Playwright) -> pd.DataFrame:
     data = pd.DataFrame(columns=[
@@ -26,9 +27,9 @@ async def run_spider(pw: Playwright) -> pd.DataFrame:
         context = await browser.new_context(user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36')
 
         # abre o navegador e a pagina
-        page = await context.new_page(url)
+        page = await context.new_page()
 
-        response = await page.goto()
+        response = await page.goto(url)
 
         if not response.ok:
             logging.error('Requisition Error')
@@ -36,7 +37,7 @@ async def run_spider(pw: Playwright) -> pd.DataFrame:
         
         count_clicks = 0
 
-        while count_clicks < 100:
+        while count_clicks < 50:
             botao_carregar_mais = page.get_by_test_id("load-more-button")
 
             try:
@@ -80,10 +81,54 @@ async def run_spider(pw: Playwright) -> pd.DataFrame:
     return data
 
 
+async def collect_districts(pw: Playwright) -> list[str]:
+    districts = []
+
+    page, response = await open_page(pw, districts_url)
+
+    if not response.ok:
+        logging.error('Requisition Error')
+        
+    await page.get_by_role("tab", name="Comprar", exact=True).get_by_role("paragraph").click()
+
+    await page.get_by_role("combobox", name="Busque por cidade").click()
+
+    await page.get_by_label("São Paulo").get_by_text("São Paulo").click()
+
+    await page.get_by_role("combobox", name="Busque por bairro").click()
+
+    while True:
+        try:
+            await page.get_by_role('combobox', name="Busque por bairro").press('ArrowDown')
+            item_i = await page.get_by_role('combobox', name="Busque por bairro").get_attribute('aria-activedescendant')
+            new_frame_text = await page.locator(f'#{item_i}').text_content()
+            if new_frame_text in districts:
+                break
+            districts.append(new_frame_text)
+        except TimeoutError:
+            break
+
+
+
+    return districts
+
+async def open_page(pw: Playwright, url: str) -> list[Page | Response]:
+    browser = await pw.chromium.launch(headless=False)
+
+    context = await browser.new_context(user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36')
+
+    page = await context.new_page()
+
+    response = await page.goto(url)
+
+    return page, response
+
 async def main():
     async with async_playwright() as pw:
-        data = await run_spider(pw)
-        save_data(data, output_path_name)
+        districts = await collect_districts(pw)
+        # data = await run_spider(pw)
+        # save_data(data, output_path_name)
+        
 
 if __name__ == '__main__':  
     asyncio.run(main())
