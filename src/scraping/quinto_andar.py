@@ -61,12 +61,12 @@ async def run_spider(pw: Playwright, districts: list[str]) -> pd.DataFrame:
                             )
                             number_elements_before = await page.get_by_test_id("house-card-container").count()
                             await botao_carregar_mais.click()
+                            await page.wait_for_function(f"document.querySelectorAll('[data-testid=\"house-card-container\"]').length > {number_elements_before}")
                             count_clicks += 1
 
                         except TimeoutError:
                             break
                     
-                    await page.wait_for_function(f"document.querySelectorAll('[data-testid=\"house-card-container\"]').length > {number_elements_before}")
 
                     locator_links = await page.get_by_test_id("HOUSE_CARDS_GRID_TEST_ID").get_by_test_id('house-card-container').get_by_role('link').evaluate_all('els => els.map(el => el.href)')
                     infos = await page.get_by_test_id("HOUSE_CARDS_GRID_TEST_ID").get_by_role('presentation').get_by_role('heading', level=3).all_inner_texts()
@@ -156,15 +156,12 @@ async def open_page(pw: Playwright, url: str) -> list[Page | Response]:
 
 async def main():
     async with Stealth().use_async(async_playwright()) as pw:
+
         districts = await collect_districts(pw)
         cleaned_districts_text = [normalize_url_text(district) for district in districts]
+
         data = await run_spider(pw, cleaned_districts_text)
-        # data = pd.DataFrame()
-        # for district in districts:
-        #     cleaned_district_text = normalize_url_text(district)
-        #     new_data = await run_spider(pw, cleaned_district_text)
-        #     if new_data.shape[0] > 0:
-        #         data = pd.concat([data, new_data], ignore_index=True).drop_duplicates()
+        
         save_data(data, output_path_name)
         
 
